@@ -1,12 +1,13 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    # API Keys
-    DASHSCOPE_API_KEY: str = "YOUR_DASHSCOPE_API_KEY"
-    
+    # LLM (OpenAI-compatible)
+    LLM_API_BASE: str = "http://192.168.2.200:3000/v1"
+    LLM_API_KEY: str = "YOUR_LLM_API_KEY"
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://admin:password@192.168.2.200:5432/llm_free"
-    
+
     # Port
     PORT: int = 8000
 

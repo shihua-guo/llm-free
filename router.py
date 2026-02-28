@@ -22,8 +22,9 @@ def get_router(pool_type: str):
         model_list.append({
             "model_name": pool_type, # 所有模型都在同一个池子里
             "litellm_params": {
-                "model": f"dashscope/{m}",
-                "api_key": settings.DASHSCOPE_API_KEY,
+                "model": f"openai/{m}",
+                "api_base": settings.LLM_API_BASE,
+                "api_key": settings.LLM_API_KEY,
                 "order": i # 按列表顺序优先级
             }
         })
@@ -33,8 +34,9 @@ def get_router(pool_type: str):
         model_list.append({
             "model_name": m,
             "litellm_params": {
-                "model": f"dashscope/{m}",
-                "api_key": settings.DASHSCOPE_API_KEY
+                "model": f"openai/{m}",
+                "api_base": settings.LLM_API_BASE,
+                "api_key": settings.LLM_API_KEY
             }
         })
 
