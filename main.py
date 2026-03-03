@@ -37,55 +37,114 @@ async def mark_model_down(model_name: str, error_msg: str):
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
+    from router import TEXT_MODELS_LIST
     data = await request.json()
-    # 当前实现统一走非流式返回，避免上游流对象无法被 FastAPI 直接序列化导致 500
     if data.get("stream") is True:
         data["stream"] = False
 
-    # 获取用户请求的模型名
     user_model = data.get("model", "text")
-    
-    # 逻辑：
-    # 1. 如果用户写 "text"、"gpt-3.5-turbo" 等不在池子里的名字，统一转为 "text" 自动路由
-    # 2. 如果用户写了池子里存在的具体名字（如 "qwen-max"），尝试精准调用
-    
-    try:
-        # 如果模型不是 "text" 且不是已知的池内模型名，强制设为 "text" 以便路由
-        # 这里简化处理：只要不是 "text"，router 内部会根据 model_list 匹配具体模型或池子
-        response = await text_router.acompletion(**data)
-        return JSONResponse(content=to_json_payload(response))
-    except litellm.exceptions.ContextWindowExceededError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        error_str = str(e).lower()
-        # 捕获额度或限制相关错误
-        if any(kw in error_str for kw in ["quota", "limit", "out of", "not authorized"]):
-            model_used = getattr(e, "model", "unknown")
-            await mark_model_down(model_used, str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+    is_pool = user_model in ["text"]
+
+    async with async_session() as session:
+        result = await session.execute(select(ModelStatus))
+        db_models = result.scalars().all()
+        unavailable = {m.model_name for m in db_models if not m.is_available}
+
+    models_to_try = [user_model]
+    if is_pool:
+        models_to_try = [m for m in TEXT_MODELS_LIST if m not in unavailable]
+
+    last_error = None
+    for model_name in models_to_try:
+        current_data = data.copy()
+        current_data["model"] = model_name
+        try:
+            response = await text_router.acompletion(**current_data)
+            return JSONResponse(content=to_json_payload(response))
+        except litellm.exceptions.ContextWindowExceededError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            if any(kw in error_str for kw in ["quota", "limit", "out of", "not authorized", "allocationquota", "freetieronly"]):
+                model_used = getattr(e, "model", model_name)
+                # LiteLLM sometimes prefixes model, strip 'openai/' prefix
+                model_used = model_used.replace("openai/", "")
+                await mark_model_down(model_used, str(e))
+                continue # Try next model
+            break # other error, raise it
+
+    raise HTTPException(status_code=500, detail=str(last_error) if last_error else "No available models")
 
 @app.post("/v1/embeddings")
 async def embeddings(request: Request):
+    from router import EMBEDDING_MODELS_LIST
     data = await request.json()
-    try:
-        # 强制使用池子路由，除非明确指定
-        if data.get("model") not in ["embedding"]:
-             data["model"] = "embedding"
-        response = await embedding_router.aembedding(**data)
-        return JSONResponse(content=to_json_payload(response))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    user_model = data.get("model", "embedding")
+    is_pool = user_model in ["embedding"]
+
+    async with async_session() as session:
+        result = await session.execute(select(ModelStatus))
+        db_models = result.scalars().all()
+        unavailable = {m.model_name for m in db_models if not m.is_available}
+
+    models_to_try = [user_model]
+    if is_pool:
+        models_to_try = [m for m in EMBEDDING_MODELS_LIST if m not in unavailable]
+
+    last_error = None
+    for model_name in models_to_try:
+        current_data = data.copy()
+        current_data["model"] = model_name
+        try:
+            response = await embedding_router.aembedding(**current_data)
+            return JSONResponse(content=to_json_payload(response))
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            if any(kw in error_str for kw in ["quota", "limit", "out of", "not authorized", "allocationquota", "freetieronly"]):
+                model_used = getattr(e, "model", model_name)
+                model_used = model_used.replace("openai/", "")
+                await mark_model_down(model_used, str(e))
+                continue
+            break
+
+    raise HTTPException(status_code=500, detail=str(last_error) if last_error else "No available models")
 
 @app.post("/v1/images/generations")
 async def image_generation(request: Request):
+    from router import VISION_MODELS_LIST
     data = await request.json()
-    try:
-        if data.get("model") not in ["vision"]:
-            data["model"] = "vision"
-        response = await vision_router.aimage_generation(**data)
-        return JSONResponse(content=to_json_payload(response))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    user_model = data.get("model", "vision")
+    is_pool = user_model in ["vision"]
+
+    async with async_session() as session:
+        result = await session.execute(select(ModelStatus))
+        db_models = result.scalars().all()
+        unavailable = {m.model_name for m in db_models if not m.is_available}
+
+    models_to_try = [user_model]
+    if is_pool:
+        models_to_try = [m for m in VISION_MODELS_LIST if m not in unavailable]
+
+    last_error = None
+    for model_name in models_to_try:
+        current_data = data.copy()
+        current_data["model"] = model_name
+        try:
+            response = await vision_router.aimage_generation(**current_data)
+            return JSONResponse(content=to_json_payload(response))
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+            if any(kw in error_str for kw in ["quota", "limit", "out of", "not authorized", "allocationquota", "freetieronly"]):
+                model_used = getattr(e, "model", model_name)
+                model_used = model_used.replace("openai/", "")
+                await mark_model_down(model_used, str(e))
+                continue
+            break
+
+    raise HTTPException(status_code=500, detail=str(last_error) if last_error else "No available models")
 
 @app.get("/status")
 async def get_status():

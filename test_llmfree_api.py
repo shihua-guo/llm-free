@@ -29,6 +29,8 @@ def post_json(url: str, payload: dict, api_key: str, timeout: int = 30):
     except error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         return e.code, body
+    except error.URLError as e:
+        return 0, str(e.reason)
 
 
 def test_chat(base_url: str, api_key: str, model: str):
@@ -68,6 +70,7 @@ def test_embedding(base_url: str, api_key: str, model: str):
     payload = {
         "model": model,
         "input": "hello embedding",
+        "encoding_format": "float"
     }
 
     code, body = post_json(url, payload, api_key)
@@ -92,7 +95,7 @@ def test_embedding(base_url: str, api_key: str, model: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url", default="http://192.168.2.200:8010/v1")
+    parser.add_argument("--base-url", default="http://localhost:8010/v1")
     parser.add_argument("--api-key", default="sk-anything")
     parser.add_argument("--chat-model", default="text", help="Use text for pool routing")
     parser.add_argument("--embedding-model", default="embedding", help="Use embedding for pool routing")

@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # Port
     PORT: int = 8000
 
+    # Extra
+    DASHSCOPE_API_KEY: str | None = None
+
     class Config:
         env_file = ".env"
 
