@@ -5,10 +5,12 @@ from router import text_router, embedding_router, vision_router
 from db import init_db, async_session, ModelStatus
 from sqlalchemy import select, update
 from datetime import datetime, timedelta
+import asyncio
 import litellm
 
 app = FastAPI(title="LLM-Free")
 
+MODEL_TIMEOUT_SECONDS = 20
 
 def to_json_payload(resp):
     """Normalize LiteLLM/OpenAI objects to plain JSON-serializable dicts."""
@@ -59,8 +61,14 @@ async def chat_completions(request: Request):
         current_data = data.copy()
         current_data["model"] = model_name
         try:
-            response = await text_router.acompletion(**current_data)
+            response = await asyncio.wait_for(
+                text_router.acompletion(**current_data),
+                timeout=MODEL_TIMEOUT_SECONDS,
+            )
             return JSONResponse(content=to_json_payload(response))
+        except asyncio.TimeoutError as e:
+            last_error = TimeoutError(f"Model {model_name} timed out after {MODEL_TIMEOUT_SECONDS}s")
+            continue
         except litellm.exceptions.ContextWindowExceededError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
